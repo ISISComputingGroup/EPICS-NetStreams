@@ -31,7 +31,7 @@ endif
 DBD += NetStreams.dbd
 
 # specify all source files to be compiled and added to the library
-NetStreams_SRCS += convertToString.cpp cnvconvert.cpp NetStreamsDriver.cpp 
+NetStreams_SRCS += convertToString.cpp NetStreamsDriver.cpp 
 NetStreams_SRCS += pugixml.cpp cnsconvert.cpp NetStreamsInterface.cpp
 
 NetStreams_LIBS += asyn
@@ -59,7 +59,7 @@ include $(TOP)/configure/RULES
 #  ADD RULES AFTER THIS LINE
 
 # we ned to make a copy due to spaces in the absolute path
-../cnvconvert.cpp : CVI
+../cnsconvert.cpp : CVI
 CVI :
 	-mkdir CVI
 ifeq (WIN32,$(OS_CLASS))
