@@ -33,8 +33,9 @@
 		  "fval" and "tval" are only used for boolean type, they are the strings to be displayed for false and true values
 		  "field" is only used for a structure type network shared variable, it indicates the structure element to access. Structures are read-only.
 	  -->
-          <param name="ind1" type="int32" access="R" endpointURL="//localhost:example_epics/ind1" otherEndpointURL="//localhost:example_lv/writer" />
-	      <param name="icont1" type="int32" access="W" endpointURL="//localhost:example_epics/icont1" otherEndpointURL="//localhost:example_lv/reader" /> 
+          <param name="reader" type="int32" access="R" endpointURL="//localhost:example_epics/reader" otherEndpointURL="//localhost:example_lv/writer" />
+          <param name="reader_loop" type="int32" access="R" endpointURL="//localhost:example_epics/reader_loop" otherEndpointURL="//localhost:example_lv/writer_loop" />
+	      <param name="writer" type="int32" access="W" endpointURL="//localhost:example_epics/writer" otherEndpointURL="//localhost:example_lv/reader" /> 
 
 	</section>
   
