@@ -239,7 +239,9 @@ void NetStreamsDriver::report(FILE* fp, int details)
 {
 	if (m_netvarint != NULL)
 	{
+        unlock();
 		m_netvarint->report(fp, details);
+        lock();
 	}
 	else
 	{

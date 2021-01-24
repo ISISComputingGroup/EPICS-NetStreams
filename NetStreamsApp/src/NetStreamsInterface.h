@@ -38,6 +38,7 @@ enum NetStreamsOptions { NSNothing = 0, NSSomething=1 };
 
 class asynPortDriver;
 struct NsItem;
+struct NsEndpoint;
 
 /// Manager class for the NetVar Interaction. Parses an @link netvarconfig.xml @endlink file and provides access to the 9variables described within. 
 class NetStreamsInterface
@@ -66,9 +67,12 @@ private:
 	params_t m_params;
 	pugi::xml_document m_xmlconfig;
     MAC_HANDLE* m_mac_env;
+	typedef std::map<std::string,NsEndpoint*> endpoints_t;
+    endpoints_t m_endpoints;
 	
     char* envExpand(const char *str);
 	void getParams();
+	void getEndpoints();    
 	static void epicsExitFunc(void* arg);
 	bool checkOption(NetStreamsOptions option) { return ( m_options & static_cast<int>(option) ) != 0; }
 	void connectVars();
