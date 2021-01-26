@@ -35,12 +35,10 @@
 	  -->
 	  
 	      <!-- define endpoints and their data types -->
-		  <!--
           <endpoint name="epr1" type="int32" access="R" URL="//localhost:example_epics/reader" otherURL="//localhost:example_lv/writer" />
           <endpoint name="epr2" type="int32" access="R" URL="//localhost:example_epics/reader_loop" otherURL="//localhost:example_lv/writer_loop" />
-	      <ebdpoint name="epw1" type="int32" access="W" URL="//localhost:example_epics/writer" otherURL="//localhost:example_lv/reader" />
+	      <endpoint name="epw1" type="int32" access="W" URL="//localhost:example_epics/writer" otherURL="//localhost:example_lv/reader" />
 	      <endpoint name="epra1" type="float64array" access="R" URL="//localhost:example_epics/reader_f64a" otherURL="//localhost:example_lv/writer_f64a" /> 
-		  -->
           <endpoint name="epstr" type="timestamp,float64array" access="R" URL="//localhost:example_epics/reader_s" otherURL="//localhost:example_lv/writer_s" />
 
           <!-- params to read/write items from/to streams --> 

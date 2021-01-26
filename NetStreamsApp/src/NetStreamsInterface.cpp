@@ -72,7 +72,12 @@ private:
 	    throw NetStreamsException(__func, __code); \
 	}
 
-
+union ScalarValue
+{
+    char* c;
+    double d;
+    int i;
+};
 
 template <class T>
 static void split_string(const std::string& str, T& cont, char delim)
@@ -98,6 +103,10 @@ static CNSType getCNSType(const std::string& type)
 		{
 			return CNSTypeInt64;
 		}
+		else if (type == "uint64" || type == "uint64array")
+		{
+			return CNSTypeUInt64;
+		}
 		else if (type == "boolean")
 		{
 			return CNSTypeBool;
@@ -118,13 +127,13 @@ static CNSType getCNSType(const std::string& type)
 		{
 			return CNSTypeInt8;
         }
-		else if (type == "timestamp" || type == "ftimestamp") // int64array[2]
+		else if (type == "timestamp" || type == "ftimestamp") // uint64array[2]
 		{
 			return CNSTypeUInt64;
 		}
         else
         {
-			return CNSTypeForce32BitSize;
+			throw NetStreamsException(std::string("getCNSType: unknwon type: ") + type);
         }
 }
 
@@ -152,16 +161,34 @@ static void createCNSData(const std::string& type, CNSData* data)
             ERROR_CHECK("CNSDataDiscard", status);
         }
     }
-	else if (type == "float64")
-		{
-            status = CNSDataCreateScalar(CNSTypeDouble, data, static_cast<double>(0));
-            ERROR_CHECK("CNSDataCreateScalar", status);
-		}
 		else if (type == "float64array")
 		{
             createCNSData("float64", &array_elem);
             status = CNSDataCreateArray(&array_elem, dims, ndims, data);
             ERROR_CHECK("CNSDataCreateArray", status);
+            status = CNSDataDiscard(array_elem);
+            ERROR_CHECK("CNSDataDiscard", status);
+		}
+		else if (type == "float32array")
+		{
+            createCNSData("float32", &array_elem);
+            status = CNSDataCreateArray(&array_elem, dims, ndims, data);
+            ERROR_CHECK("CNSDataCreateArray", status);
+            status = CNSDataDiscard(array_elem);
+            ERROR_CHECK("CNSDataDiscard", status);
+		}
+		else if (type == "int32array")
+		{
+            createCNSData("int32", &array_elem);
+            status = CNSDataCreateArray(&array_elem, dims, ndims, data);
+            ERROR_CHECK("CNSDataCreateArray", status);
+            status = CNSDataDiscard(array_elem);
+            ERROR_CHECK("CNSDataDiscard", status);
+		}
+	    else if (type == "float64")
+		{
+            status = CNSDataCreateScalar(CNSTypeDouble, data, static_cast<double>(0));
+            ERROR_CHECK("CNSDataCreateScalar", status);
 		}
 		else if (type == "int32")
 		{
@@ -183,11 +210,64 @@ static void createCNSData(const std::string& type, CNSData* data)
             createCNSData("uint64", &array_elem);
             status = CNSDataCreateArray(&array_elem, dims, ndims, data);
             ERROR_CHECK("CNSDataCreateArray", status);
+            status = CNSDataDiscard(array_elem);
+            ERROR_CHECK("CNSDataDiscard", status);
 		}
+		else if (type == "string")
+		{
+            status = CNSDataCreateScalar(CNSTypeString, data, "");
+            ERROR_CHECK("CNSDataCreateScalar", status);
+		}
+        else
+        {
+			throw NetStreamsException(std::string("createCNSData: unknwon type: ") + type);
+        }
 }        
 
+struct NsItem
+{
+	std::string type;   ///< type as specified in the XML file e.g. float64array
+	int field; ///< if we refer to a struct, this is the index of the field (starting at 0), otherwise it is -1 
+	int id; ///< asyn parameter id, -1 if not assigned
+	std::vector<char> array_data; ///< only used for array parameters, contains cached copy of data as this is not stored in usual asyn parameter map
+	CNSType nstype;
+    std::string endpoint;
+	epicsTimeStamp epicsTS; ///< timestamp of shared variable update
+    NetStreamsInterface* m_inf;
+	
+	NsItem(NetStreamsInterface* inf_, const std::string& endpoint_, const std::string& type_, int field_) : endpoint(endpoint_), type(type_), field(field_), id(-1), m_inf(inf_)
+	{ 
+	    memset(&epicsTS, 0, sizeof(epicsTS));
+	}
+	void report(const std::string& name, FILE* fp) { }
+    void callback(epicsTimeStamp* epicsTS, CNSType ep_type, void* value, size_t numElements)
+    {
+        switch(ep_type)
+        {
+				case CNSTypeInt32:
+			        m_inf->updateParamValue(id, *(int*)value, epicsTS, true);
+                    break;
+				case CNSTypeDouble:
+				case CNSTypeString:
+                    break;
+        }
+    }
+
+
+
+                    //double* dblarray = new double[numElements];
+                    //for(int j=0; j<numElements; ++j)
+                    //{                    
+                      //  error = CNSDataGetScalarValue(array[j], dblarray + j);
+                       // ERROR_CHECK("CNSDataGetScalarValue", error);
+                   // }
+
+
+
+};
 
 /// details about a network stream we have connected to an asyn parameter
+
 
 struct NsEndpoint
 {
@@ -196,8 +276,12 @@ struct NsEndpoint
 	std::string otherURL;   ///< full path to network shared variable 
 	std::string type;   ///< type as specified in the XML file e.g. float64array
 	NsAccessMode access; ///< combination of #NsAccessMode
+    
+    std::vector<NsItem*> m_callbacks;
 
 	CNSEndpoint endpointID;
+    CNSType endpointType;
+    
 	epicsTimeStamp epicsTS; ///< timestamp of shared variable update
 	NsEndpoint(const std::string& type_,  NsAccessMode access_, const std::string& URL_, const std::string&  otherURL_) : URL(URL_), otherURL(otherURL_), type(type_), access(access_), endpointID(0)
 	{ 
@@ -241,6 +325,49 @@ struct NsEndpoint
 		}
 	}
  
+    void monitorAndReconnect()
+    {
+        int is_connected, status;
+        while(true)
+        {
+            try
+            {
+                connect();
+                do {
+                    epicsThreadSleep(1.0);
+                    status = CNSGetEndpointAttribute(endpointID, CNSAttributeIsEndpointConnected, &is_connected);
+                } while (status == 0 && is_connected == 1);
+            }
+ 			catch (const std::exception& ex)
+			{
+				std::cerr << "Error for " << URL << ": " << ex.what() << std::endl;
+			}        
+            CNSDiscardEndpoint(endpointID);
+            epicsThreadSleep(5.0);
+        }
+    }
+    
+    void connectAndRead()
+    {
+        while(true)
+        {
+            try
+            {
+                connect();
+                while(true)
+                {
+                    read();
+                }
+            }
+ 			catch (const std::exception& ex)
+			{
+				std::cerr << "Error for " << URL << ": " << ex.what() << std::endl;
+			}
+            CNSDiscardEndpoint(endpointID);
+            epicsThreadSleep(5.0);
+        }
+    }
+    
     void connect()
     {
         CNSDirection dir;
@@ -267,21 +394,33 @@ struct NsEndpoint
             createCNSData(type, &data);
 		    error = CNSNewEndpoint(URL.c_str(), otherURL.c_str(), data, 100, 0, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewEndpoint", error);
+            error = CNSDataDiscard(data);
+            ERROR_CHECK("CNSDataDiscard", error);
+            endpointType = CNSTypeStruct;
         }
         else if (type.find("array") != std::string::npos) // is it an array?
         {
 		    error = CNSNewArrayEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), 100, 0, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewArrayEndpoint", error);
+            endpointType = getCNSType(type);
         }
         else
         {
 		    error = CNSNewScalarEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), 100, 0, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewScalarEndpoint", error);
-        }
-        std::cerr << "connect: connected to \"" << URL << "\" to \"" << otherURL << "\"" << std::endl;
-        while(true)
+            endpointType = getCNSType(type);
+       }
+        std::cerr << "connect: connected \"" << URL << "\" to \"" << otherURL << "\"" << std::endl;
+    }
+
+    void doCallbacks(CNSType ep_type, void* value, size_t numElements, int field = -1)
+    {    
+        for(int i=0; i<m_callbacks.size(); ++i)
         {
-            read();
+            if (field == m_callbacks[i]->field)
+            {
+                m_callbacks[i]->callback(&epicsTS, ep_type, value, numElements);
+            }
         }
     }
     
@@ -294,217 +433,135 @@ struct NsEndpoint
             size_t nfields;
             error = CNSReadData(endpointID, CNSWaitForever, &data);
             ERROR_CHECK("CNSReadData", error);
+            epicsTimeGetCurrent(&epicsTS);
             CNSType dtype;
             error = CNSDataGetType(data, &dtype);
             ERROR_CHECK("CNSDataGetType", error);
             if (dtype != CNSTypeStruct)
             {
-                std::cerr << "error\n"; 
+                throw NetStreamsException("Invalid data type - not struct");
             }         
             error = CNSDataGetNumStructFields(data, &nfields);
             ERROR_CHECK("CNSDataGetNumStructFields", error);
-            CNSData*fields = new CNSData[nfields];
+            CNSData* fields = new CNSData[nfields];
             error = CNSDataGetStructFields(data, fields, nfields);
             ERROR_CHECK("CNSDataGetStructFields", error);
             for(int i=0; i<nfields; ++i)
             {
                 error = CNSDataGetType(fields[i], &dtype);
-            ERROR_CHECK("CNSDataGetType", error);
+                ERROR_CHECK("CNSDataGetType", error);
                 if (dtype == CNSTypeArray)
                 {
                     CNSType elem_type;
                     size_t numDimensions, numElements = 1;
                     size_t dimensions[10];
                     error = CNSDataGetArrayElementType(fields[i], &elem_type); 
-            ERROR_CHECK("CNSDataGetArrayElementType", error);
+                    ERROR_CHECK("CNSDataGetArrayElementType", error);
                     error = CNSDataGetNumArrayDimensions (fields[i], &numDimensions);
-            ERROR_CHECK("CNSDataGetNumArrayDimensions", error);
+                    ERROR_CHECK("CNSDataGetNumArrayDimensions", error);
                     error = CNSDataGetArrayDimensions (fields[i], dimensions, numDimensions);  
-            ERROR_CHECK("CNSDataGetArrayDimensions", error);
+                    ERROR_CHECK("CNSDataGetArrayDimensions", error);
                     for(int j=0; j<numDimensions; ++j)
                     {
                         numElements *= dimensions[j];
                     }
                     CNSData* array = new CNSData[numElements];                  
                     error = CNSDataGetArrayValue(fields[i], array, numElements);
-            ERROR_CHECK("CNSDataGetArrayValue", error);
+                    ERROR_CHECK("CNSDataGetArrayValue", error);
                     error = CNSDataGetType(array[0], &dtype);
-            ERROR_CHECK("CNSDataGetType", error);
+                    ERROR_CHECK("CNSDataGetType", error);
                     if (dtype != elem_type)
                     {
-                        std::cerr << "error\n"; 
+                        throw NetStreamsException("Array data type mismatch");
                     }
-                    double* dblarray = new double[numElements];
+                    doCallbacks(CNSTypeArray, array, numElements, i);
                     for(int j=0; j<numElements; ++j)
                     {                    
-                        error = CNSDataGetScalarValue(array[j], dblarray + j);
-                        ERROR_CHECK("CNSDataGetScalarValue", error);
+                        error = CNSDataDiscard(array[j]);
+                        ERROR_CHECK("CNSDataDiscard", error);
                     }
-                    std::cerr << "read " << numElements << " " << dblarray[0] << std::endl;
+                    delete[] array;
                 }
                 else
                 {
-                    std::cerr << "no data" << std::endl;
+                    ScalarValue value;
+                    error = CNSDataGetScalarValue(fields[i], &value);
+                    ERROR_CHECK("CNSDataGetScalarValue", error);
+                    if (type == "string")
+                    {
+                        doCallbacks(dtype, value.c, 1, i);
+                        error = CNSFreeMemory(value.c);
+                        ERROR_CHECK("CNSFreeMemory", error);
+                    }
+                    else
+                    {
+                        doCallbacks(dtype, &value, 1, i);
+                    }
                 }
             }
             for(int i=0; i<nfields; ++i)
             {
                 error = CNSDataDiscard(fields[i]);
-            ERROR_CHECK("CNSDataDiscard", error);
+                ERROR_CHECK("CNSDataDiscard", error);
             }
+            delete[] fields;
         }
         else if (type.find("array") != std::string::npos)
         {
-            void* array;
+            void* array = NULL;
             size_t num_elements;
             error = CNSReadArray(endpointID, CNSWaitForever, &array, &num_elements);
             ERROR_CHECK("CNSReadArray", error);
-            std::cerr << "num elements: " << num_elements << " " << *(double*)array << std::endl;
+            epicsTimeGetCurrent(&epicsTS);
+            doCallbacks(endpointType, array, num_elements);
             error = CNSFreeMemory(array);
             ERROR_CHECK("CNSFreeMemory", error);
         }
         else
         {
-            void* value;
+            ScalarValue value;
             error = CNSReadScalar(endpointID, CNSWaitForever, &value);
             ERROR_CHECK("CNSReadScalar", error);
-            std::cerr << "read value" << std::endl;
+            epicsTimeGetCurrent(&epicsTS);
+            if (type == "string")
+            {
+                doCallbacks(endpointType, value.c, 1);
+                error = CNSFreeMemory(value.c);
+                ERROR_CHECK("CNSFreeMemory", error);
+            }
+            else
+            {
+                doCallbacks(endpointType, &value, 1);
+            }
         }
     }
 
     static void connectC(void * arg)
     {
             NsEndpoint* ep = (NsEndpoint*)arg;
-			try {
-				ep->connect();
-			}
-			catch (const std::exception& ex)
-			{
-				std::cerr << "Error for " << ep->URL << ": " << ex.what() << std::endl;
-			}
+            if (ep->access & NsEndpoint::Read)
+            {
+   			    ep->connectAndRead();
+            }
+            else
+            {
+                ep->monitorAndReconnect();
+            }
     }
 };
 
-struct NsItem
-{
-	enum { Read=0x1, Write=0x2 } NsAccessMode;   ///< possible access modes to network shared variable
-	std::string endpointUrl;   ///< full path to network shared variable 
-	std::string otherEndpointUrl;   ///< full path to network shared variable 
-	std::string type;   ///< type as specified in the XML file e.g. float64array
-	unsigned access; ///< combination of #NsAccessMode
-	int field; ///< if we refer to a struct, this is the index of the field (starting at 0), otherwise it is -1 
-	int id; ///< asyn parameter id, -1 if not assigned
-	std::vector<char> array_data; ///< only used for array parameters, contains cached copy of data as this is not stored in usual asyn parameter map
-	CNSEndpoint endpointID;
-	CNSType nstype;
-	epicsTimeStamp epicsTS; ///< timestamp of shared variable update
-	
-	NsItem(const char* endpointUrl_, const char*  otherEndpointUrl_, const char* type_, unsigned access_, int field_) : endpointUrl(endpointUrl_), otherEndpointUrl(otherEndpointUrl_), type(type_), access(access_), field(field_), id(-1), endpointID(0)
-	{ 
-	    memset(&epicsTS, 0, sizeof(epicsTS));
-	}
-	void report(const std::string& name, FILE* fp) { }
-};
 
-struct NetStreamsReaderData
-{
-	NetStreamsInterface *ns;
-	std::string param;
-	NetStreamsReaderData(NetStreamsInterface* ns_, const std::string& param_) : ns(ns_), param(param_) { }
-};
-
-void NetStreamsInterface::netStreamReaderC(void* arg)
-{
-	NetStreamsReaderData* nsd = (NetStreamsReaderData*)arg;
-	NetStreamsInterface* ns = nsd->ns;
-	std::string param = nsd->param;
-	delete nsd;
-	ns->netStreamReader(param);
-}
-
-void NetStreamsInterface::netStreamReader(const std::string& param)
-{
-	NsItem* item = m_params[param];
-	int status, ival;
-	double dval;
-	char* cval;
-	while(true)
-	{
-		try
-		{
-			switch(item->nstype)
-			{
-				case CNSTypeInt32:
-					status = CNSReadScalar(item->endpointID, CNSWaitForever, &ival);
-					ERROR_CHECK("CNSReadScalar", status);
-					epicsTimeGetCurrent(&(item->epicsTS));
-					updateParamValue(item->id, ival, &(item->epicsTS), true);
-					break;
-
-				case CNSTypeDouble:
-					status = CNSReadScalar(item->endpointID, CNSWaitForever, &dval);
-					ERROR_CHECK("CNSReadScalar", status);
-					epicsTimeGetCurrent(&(item->epicsTS));
-					updateParamValue(item->id, dval, &(item->epicsTS), true);
-					break;
-
-				case CNSTypeString:
-					status = CNSReadScalar(item->endpointID, CNSWaitForever, &cval);
-					ERROR_CHECK("CNSReadScalar", status);
-					epicsTimeGetCurrent(&(item->epicsTS));
-					updateParamValue(item->id, cval, &(item->epicsTS), true);
-					status = CNSFreeMemory(cval);
-					ERROR_CHECK("CNSFreeMemory", status);
-					break;
-					
-				default:
-					break;
-			}
-		}
-		catch(const std::exception& ex)
-		{
-			std::cerr << "netStreamReader: " << ex.what() << std::endl;
-			epicsThreadSleep(5.0);
-		}
-	}
-}
-
-void NetStreamsInterface::connectVars()
-{
-    static const char* functionName = "connectVars";
-	int error;
-	CNSDirection dir;
-	
-	for(params_t::const_iterator it=m_params.begin(); it != m_params.end(); ++it)
-	{
-		NsItem* item = it->second;		
-		std::cerr << "connectVars: connecting to \"" << item->endpointUrl << "\"" << std::endl;
-		if (item->access & NsItem::Read)
-		{
-			dir = CNSDirectionReader;
-		}
-		else
-		{
-			dir = CNSDirectionWriter;			
-		}		
-		error = CNSNewScalarEndpoint(item->endpointUrl.c_str(), item->otherEndpointUrl.c_str(), item->nstype, 100, 0, dir, CNSWaitForever, NULL, &(item->endpointID));
-	    ERROR_CHECK("CNSNewScalarEndpoint", error);
-		if (item->access & NsItem::Read)
-		{
-			NetStreamsReaderData* nsd = new NetStreamsReaderData(this, it->first); 
-		    std::string thread_name = std::string("NetStreams-") + it->first;
-		    if (epicsThreadCreate(thread_name.c_str(),
-		              epicsThreadPriorityMedium,
-		              epicsThreadGetStackSize(epicsThreadStackMedium),
-		              (EPICSTHREADFUNC)netStreamReaderC, nsd) == 0)
-			{
-				printf("%s:%s: epicsThreadCreate failure\n", driverName, functionName);
-				return;
-			}
-		}
-	}
-}
-
+//template <CNSType T>
+//void NetStreamsInterface::netStreamReader(const std::string& param)
+//{
+//	NsItem* item = m_params[param];
+ //   CNS2C<T>::ctype val;
+//	int status = CNSReadScalar(item->endpointID, CNSWaitForever, &val);
+//	ERROR_CHECK("CNSReadScalar", status);
+//					epicsTimeGetCurrent(&(item->epicsTS));
+//					updateParamValue(item->id, ival, &(item->epicsTS), true);
+ //   CNS2C<T>::free(val);
+    
 
 template<typename T>
 void NetStreamsInterface::updateParamValue(int param_index, T val, epicsTimeStamp* epicsTS, bool do_asyn_param_callbacks)
@@ -513,7 +570,7 @@ void NetStreamsInterface::updateParamValue(int param_index, T val, epicsTimeStam
 	m_driver->getParamName(param_index, &paramName);
 	m_driver->lock();
 	m_driver->setTimeStamp(epicsTS);
-	if (m_params[paramName]->type == "float64")
+	if (m_params[paramName]->type == "float64" || m_params[paramName]->type == "ftimestamp")
 	{
 	    m_driver->setDoubleParam(param_index, convertToScalar<double>(val));
 	}
@@ -521,7 +578,7 @@ void NetStreamsInterface::updateParamValue(int param_index, T val, epicsTimeStam
 	{
 	    m_driver->setIntegerParam(param_index, convertToScalar<int>(val));
 	}
-	else if (m_params[paramName]->type == "string")
+	else if (m_params[paramName]->type == "string" || m_params[paramName]->type == "timestamp")
 	{
 	    m_driver->setStringParam(param_index, convertToPtr<char>(val));
 	}
@@ -669,14 +726,11 @@ void NetStreamsInterface::createParams(asynPortDriver* driver)
     static const char* functionName = "createParams";
     m_driver = driver;
     getEndpoints();
-    
-    return;
-    
 	getParams();
 	for(params_t::iterator it=m_params.begin(); it != m_params.end(); ++it)
 	{
 		NsItem* item = it->second;
-		if (item->type == "float64")
+		if (item->type == "float64" || item->type == "ftimestamp")
 		{
 			item->nstype = CNSTypeDouble;
 			m_driver->createParam(it->first.c_str(), asynParamFloat64, &(item->id));
@@ -686,7 +740,7 @@ void NetStreamsInterface::createParams(asynPortDriver* driver)
 			item->nstype = CNSTypeInt32;
 			m_driver->createParam(it->first.c_str(), asynParamInt32, &(item->id));
 		}
-		else if (item->type == "string")
+		else if (item->type == "string" || item->type == "timestamp")
 		{
 			item->nstype = CNSTypeString;
 			m_driver->createParam(it->first.c_str(), asynParamOctet, &(item->id));
@@ -722,7 +776,7 @@ void NetStreamsInterface::createParams(asynPortDriver* driver)
 			                functionName, item->type.c_str(), it->first.c_str());
 		}
 	}
-	connectVars();
+	//connectVars();
 }
 
 void NetStreamsInterface::getEndpoints()
@@ -816,38 +870,31 @@ void NetStreamsInterface::getParams()
 		return;
 	}
 	int field;
-	unsigned access_mode;
 	for (pugi::xpath_node_set::const_iterator it = params.begin(); it != params.end(); ++it)
 	{
 		pugi::xpath_node node = *it;	
-		std::string attr1 = node.node().attribute("name").value();
-		std::string attr2 = node.node().attribute("type").value();
-		std::string attr3 = node.node().attribute("access").value();
-		std::string attr4 = node.node().attribute("endpointURL").value();
-		std::string attr5 = node.node().attribute("otherEndpointURL").value();
-		std::string attr6 = node.node().attribute("field").value();	
-		if (attr6.size() == 0)
+		std::string name = node.node().attribute("name").value();
+		std::string type = node.node().attribute("type").value();
+		std::string endpoint = node.node().attribute("endpoint").value();
+		std::string field_s = node.node().attribute("field").value();	
+		if (field_s.size() == 0)
 		{
 			field = -1;
 		}
 		else
 		{
-			field = atoi(attr6.c_str());
+			field = atoi(field_s.c_str());
 		}
-		access_mode = 0;
-		if (attr3 == "R")
-		{			
-			access_mode = NsItem::Read;
-		}
-		else if (attr3 == "W")
+        NsItem* ns = new NsItem(this, endpoint, type, field);
+		m_params[name] = ns;
+		if (m_endpoints.find(endpoint) != m_endpoints.end())
 		{
-			access_mode = NsItem::Write;
+			m_endpoints[endpoint]->m_callbacks.push_back(ns);
 		}
 		else
 		{
-			std::cerr << "getParams: Unknown access mode \"" << attr3 << "\" for param " << attr1 << std::endl;
+			std::cerr << "Endpoint " << endpoint << " does not exist for parameter " << name << std::endl;
 		}
-		m_params[attr1] = new NsItem(attr4.c_str(),attr5.c_str(),attr2.c_str(),access_mode,field);	
 	}	
 }
 
@@ -863,17 +910,17 @@ void NetStreamsInterface::setValue(const char* param, const std::string& value)
 	{
         throw std::runtime_error(std::string("setValueCNV: unable to update struct variable via param \"") + param + "\"");
 	}
-	if (item->access & NsItem::Write)
+	if (m_endpoints[item->endpoint]->access & NsEndpoint::Write)
 	{
-	    int status = CNSWriteScalar(item->endpointID, CNSWaitForever, value.c_str());
+	    int status = CNSWriteScalar(m_endpoints[item->endpoint]->endpointID, CNSWaitForever, value.c_str());
 		ERROR_CHECK("CNSWriteScalar", status);
-		status = CNSFlush(item->endpointID, CNSWaitForever, CNSFlushAllItemsAvailForRead);
+		status = CNSFlush(m_endpoints[item->endpoint]->endpointID, CNSWaitForever, CNSFlushAllItemsAvailForRead);
 		ERROR_CHECK("CNSFlush", status);
 		epicsTimeGetCurrent(&(item->epicsTS));
 	}
 	else
 	{
-        throw std::runtime_error(std::string("setValueCNV: param \"")  + param + "\" does not define a writer for \"" + item->endpointUrl + "\"");
+        throw std::runtime_error(std::string("setValueCNV: param \"")  + param + "\" does not define a writer for \"" + item->endpoint + "\"");
 	}
 }
 
@@ -889,17 +936,17 @@ void NetStreamsInterface::setValue(const char* param, const T& value)
 	{
         throw std::runtime_error(std::string("setValueCNV: unable to update struct variable via param \"") + param + "\"");
 	}
-	if (item->access & NsItem::Write)
+	if (m_endpoints[item->endpoint]->access & NsEndpoint::Write)
 	{
-	    int status = CNSWriteScalar(item->endpointID, CNSWaitForever, value);
+	    int status = CNSWriteScalar(m_endpoints[item->endpoint]->endpointID, CNSWaitForever, value);
 		ERROR_CHECK("CNSWriteScalar", status);
-		status = CNSFlush(item->endpointID, CNSWaitForever, CNSFlushAllItemsAvailForRead);
+		status = CNSFlush(m_endpoints[item->endpoint]->endpointID, CNSWaitForever, CNSFlushAllItemsAvailForRead);
 		ERROR_CHECK("CNSFlush", status);
 		epicsTimeGetCurrent(&(item->epicsTS));
 	}
 	else
 	{
-        throw std::runtime_error(std::string("setValueCNV: param \"")  + param + "\" does not define a writer for \"" + item->endpointUrl + "\"");
+        throw std::runtime_error(std::string("setValueCNV: param \"")  + param + "\" does not define a writer for \"" + item->endpoint + "\"");
 	}
 }
 

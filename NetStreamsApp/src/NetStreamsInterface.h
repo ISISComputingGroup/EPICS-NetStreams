@@ -54,8 +54,7 @@ public:
 	template<typename T> void setArrayValue(const char* param, const T* value, size_t nElements);
 	template<typename T> void readArrayValue(const char* paramName, T* value, size_t nElements, size_t* nIn);
 
-	static void netStreamReaderC(void* arg);
-	void netStreamReader(const std::string& param);
+	template<typename T> void updateParamValue(int param_index, T val, epicsTimeStamp* epicsTS, bool do_asyn_param_callbacks);
     
 private:
 	std::string m_configSection;  ///< section of \a configFile to load information from
@@ -76,7 +75,6 @@ private:
 	static void epicsExitFunc(void* arg);
 	bool checkOption(NetStreamsOptions option) { return ( m_options & static_cast<int>(option) ) != 0; }
 	void connectVars();
-	template<typename T> void updateParamValue(int param_index, T val, epicsTimeStamp* epicsTS, bool do_asyn_param_callbacks);
 	template<typename T> void updateParamArrayValue(int param_index, T* val, size_t nElements, epicsTimeStamp* epicsTS);
 	template<typename T,typename U> void updateParamArrayValueImpl(int param_index, T* val, size_t nElements);
 };
