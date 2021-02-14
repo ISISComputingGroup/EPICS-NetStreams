@@ -26,7 +26,13 @@
 #include <map>
 #include <list>
 #include <limits>
+#if defined(_WIN32) && defined(_MSC_VER) && _MSC_VER < 1700 /* Pre VS2012 */
+#include <boost/atomic.hpp>
+namespace atomicns = boost;
+#else
 #include <atomic>
+namespace atomicns = std;
+#endif
 #include <stdexcept>
 #include <sstream>
 #include <fstream>
@@ -345,8 +351,8 @@ struct NsEndpoint
 	CNSEndpoint endpointID;
     CNSType endpointType;
     
-    std::atomic<uint32_t> m_items_read;
-    std::atomic<uint64_t> m_bytes_read;
+    atomicns::atomic<uint32_t> m_items_read;
+    atomicns::atomic<uint64_t> m_bytes_read;
     uint32_t m_last_items_read;
     uint64_t m_last_bytes_read;
     struct timeb m_last_report;
