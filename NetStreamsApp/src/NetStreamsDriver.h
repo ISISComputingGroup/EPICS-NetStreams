@@ -39,7 +39,7 @@ public:
 	int pollTime() { return m_poll_ms; }
 	void updateValues()
 	{
-		m_netvarint->updateValues();
+		//m_netvarint->updateValues();
 	}	
 	static void epicsExitFunc(void* arg);
 	void shuttingDown(bool state) { m_shutting_down = state; }

@@ -32,10 +32,37 @@
 		  "netvar" is the path to the shared variable - you can use / rather than \
 		  "fval" and "tval" are only used for boolean type, they are the strings to be displayed for false and true values
 		  "field" is only used for a structure type network shared variable, it indicates the structure element to access. Structures are read-only.
+		  "delay_ms" delay to add after an endpoint read, to throttle updates, sets a max rate for data. 0 or not present = as fast as possible.
+		             data will not be lost as network streams are lossless and buffer data, this is to give e.g. time for EPICS channel access
+					 monitors to process 
 	  -->
-          <param name="reader" type="int32" access="R" endpointURL="//localhost:example_epics/reader" otherEndpointURL="//localhost:example_lv/writer" />
-          <param name="reader_loop" type="int32" access="R" endpointURL="//localhost:example_epics/reader_loop" otherEndpointURL="//localhost:example_lv/writer_loop" />
-	      <param name="writer" type="int32" access="W" endpointURL="//localhost:example_epics/writer" otherEndpointURL="//localhost:example_lv/reader" /> 
+	  
+	      <!-- define endpoints and their data types -->
+		  <!-- you can also specify buffer_items and buffer_alloc attributes - these are used to set the FIFO buffer parameters on the endpoints
+		       see NI help page for endpoints to understand how these are used, in particular how buffer_alloc is used with arrays -->
+          <endpoint name="epr1" type="int32" access="R" URL="//localhost:example_epics/reader" otherURL="//localhost:example_lv/writer" />
+          <endpoint name="epr2" type="int32" access="R" URL="//localhost:example_epics/reader_loop" otherURL="//localhost:example_lv/writer_loop" />
+	      <endpoint name="epw1" type="int32" access="W" URL="//localhost:example_epics/writer" otherURL="//localhost:example_lv/reader" />
+	      <endpoint name="epra1" type="float64array" access="R" buffer_items="100" URL="//localhost:example_epics/reader_f64a" otherURL="//localhost:example_lv/writer_f64a" /> 
+          <endpoint name="epstr" type="timestamp,float64array" access="R" URL="//localhost:example_epics/reader_s" otherURL="//localhost:example_lv/writer_s" />
+
+          <!-- params to read/write items from/to streams -->
+          <param name="reader" type="int32" endpoint="epr1" />
+          <param name="reader_loop" type="int32" endpoint="epr2" />
+	      <param name="writer" type="int32" endpoint="epw1" />
+		 
+          <!-- if we specify with_ts we mean the 128bit timestamp is embedded in the first few array elements. So for a double
+           array this is two elements. This should be a straight cast i.e. no conversion, see example.vi
+           I am not sure of we will get endian issue, but as double and int64 are same size this may get sorted out automatically -->
+	      <param name="reader_f64a" type="float64array" endpoint="epra1" with_ts="true" />
+		  
+		  <!-- a timestamp parameter: this is a uint64[2] array whose contents are used to set timestamp on parameter --> 
+	      <param name="reader_s_ts" type="ftimestamp" endpoint="epstr" field="0" /> 
+		  <!-- ts_param means timestamp on this parameter should be taken from the referenced parameter, usually onw of type "timestap" or "ftimestamp"
+               this is probably most useful for a structure/cluster when timestamp and data can be sent together. However see with_ts option for
+               an alternative. The network streams transmission of arrays inside clusters looks less effeciant to a direct array endpoint, so
+               using with_ts may be prefereed for large arrays --> 
+	      <param name="reader_s_f64a" type="float64array" ts_param="reader_s_ts" endpoint="epstr" field="1" /> 
 
 	</section>
   
