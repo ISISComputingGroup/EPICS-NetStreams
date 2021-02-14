@@ -11,6 +11,12 @@
 #ifndef NetStreams_INTERFACE_H
 #define NetStreams_INTERFACE_H
 
+#ifdef epicsExportSharedSymbols
+#define NetStreamsSymbols
+#undef epicsExportSharedSymbols
+#include <shareLib.h>
+#endif
+
 #include <stdio.h>
 
 #include <string>
@@ -26,12 +32,19 @@
 #include <epicsThread.h>
 #include <epicsExit.h>
 #include <macLib.h>
+#include <asynDriver.h>
 
 #include <cvirte.h>		
 #include <userint.h>
 #include <cvinetstreams.h>
 
 #include "pugixml.hpp"
+
+#ifdef NetStreamsSymbols
+#undef NetStreamsSymbols
+#define epicsExportSharedSymbols
+#include <shareLib.h>
+#endif
 
 /// option argument in NetStreamsConfigure() of @link st.cmd @endlink not used at present
 enum NetStreamsOptions { NSNothing = 0, NSSomething=1 };
@@ -41,13 +54,12 @@ struct NsItem;
 struct NsEndpoint;
 
 /// Manager class for the NetVar Interaction. Parses an @link netvarconfig.xml @endlink file and provides access to the 9variables described within. 
-class NetStreamsInterface
+class epicsShareClass NetStreamsInterface
 {
 public:
 	NetStreamsInterface(const char* configSection, const char *configFile, int options);
 	size_t nParams();
 	~NetStreamsInterface() { }
-	void updateValues();
 	void createParams(asynPortDriver* driver);
 	void report(FILE* fp, int details);
 	template<typename T> void setValue(const char* param, const T& value);
@@ -55,7 +67,12 @@ public:
 	template<typename T> void readArrayValue(const char* paramName, T* value, size_t nElements, size_t* nIn);
 
 	template<typename T> void updateParamValue(int param_index, T val, epicsTimeStamp* epicsTS, bool do_asyn_param_callbacks);
-    
+    template<typename T> void updateParamArrayValue(int param_index, T* val, size_t nElements, epicsTimeStamp* epicsTS, bool do_asyn_param_callbacks, bool with_ts);
+    template<typename T,typename U> void updateParamArrayValueImpl(int param_index, T* val, size_t nElements);
+   
+   
+    epicsTimeStamp* getLinkedTimestamp(int param_id, epicsTimeStamp* es);
+
 private:
 	std::string m_configSection;  ///< section of \a configFile to load information from
 	std::string m_configFile;   
@@ -75,8 +92,6 @@ private:
 	static void epicsExitFunc(void* arg);
 	bool checkOption(NetStreamsOptions option) { return ( m_options & static_cast<int>(option) ) != 0; }
 	void connectVars();
-	template<typename T> void updateParamArrayValue(int param_index, T* val, size_t nElements, epicsTimeStamp* epicsTS);
-	template<typename T,typename U> void updateParamArrayValueImpl(int param_index, T* val, size_t nElements);
 };
 
 #endif /* NETSTREAM_INTERFACE_H */

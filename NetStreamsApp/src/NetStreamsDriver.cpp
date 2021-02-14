@@ -26,16 +26,17 @@
 #include <epicsEvent.h>
 #include <errlog.h>
 #include <iocsh.h>
+#include <alarm.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+#include <epicsExport.h>
+
 #include "convertToString.h"
 #include "NetStreamsInterface.h"
 #include "NetStreamsDriver.h"
-
-#include <epicsExport.h>
 
 static const char *driverName="NetStreamsDriver"; ///< Name of driver for use in message printing 
 
@@ -308,7 +309,18 @@ void NetStreamsDriver::NetStreamsTask(void* arg)
 	{
 		while(!driver->shuttingDown())
 		{
-			driver->updateValues();
+            try
+			{
+				driver->updateValues();
+			}
+			catch (const std::exception& ex)
+			{
+				std::cerr << "NetStreamsTask: " << ex.what() << std::endl;
+			}
+			catch (...)
+			{
+				std::cerr << "NetStreamsTask: unknown exception" << std::endl;
+			}
 			epicsThreadSleep(static_cast<double>(poll_ms) / 1000.0);
 		}
 	}

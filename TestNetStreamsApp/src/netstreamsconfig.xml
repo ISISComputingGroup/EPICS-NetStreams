@@ -32,6 +32,7 @@
 		  "netvar" is the path to the shared variable - you can use / rather than \
 		  "fval" and "tval" are only used for boolean type, they are the strings to be displayed for false and true values
 		  "field" is only used for a structure type network shared variable, it indicates the structure element to access. Structures are read-only.
+		  "delay_ms" delay to add after an endpoint read, to throttle updates, sets max rate for data. 0 or not present = as fast as possible.
 	  -->
 	  
 	      <!-- define endpoints and their data types -->
@@ -41,14 +42,17 @@
 	      <endpoint name="epra1" type="float64array" access="R" URL="//localhost:example_epics/reader_f64a" otherURL="//localhost:example_lv/writer_f64a" /> 
           <endpoint name="epstr" type="timestamp,float64array" access="R" URL="//localhost:example_epics/reader_s" otherURL="//localhost:example_lv/writer_s" />
 
-          <!-- params to read/write items from/to streams --> 
+          <!-- params to read/write items from/to streams -->
           <param name="reader" type="int32" endpoint="epr1" />
           <param name="reader_loop" type="int32" endpoint="epr2" />
-	      <param name="writer" type="int32" endpoint="epw1" /> 
-	      <param name="reader_f64a" type="float64array" endpoint="epra1" />
+	      <param name="writer" type="int32" endpoint="epw1" />
+		 
+		  <!-- with_ts="true" means first 128 bits of array (so e.g. two doubles) can be cast to two unsigned 64 bit integers to get a timestamp -->
+	      <param name="reader_f64a" type="float64array" endpoint="epra1" with_ts="true" />
 		  
-		  <!-- params to read timestamp and array from structure, use timestamp to set TIME on array --> 
+		  <!-- a timestamp parameter: arrays contents used to set timestamp on parameter --> 
 	      <param name="reader_s_ts" type="ftimestamp" endpoint="epstr" field="0" /> 
+		  <!-- ts_param means timestamp on this parameter should be taken from the referenced parameter --> 
 	      <param name="reader_s_f64a" type="float64array" ts_param="reader_s_ts" endpoint="epstr" field="1" /> 
 
 	</section>

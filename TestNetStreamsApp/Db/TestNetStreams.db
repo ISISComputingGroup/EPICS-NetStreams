@@ -22,3 +22,37 @@ record(longout, "$(P)writer")
     field(OUT,  "@asyn(nsv,0,0)writer")
 }
 
+record(waveform, "$(P)array_RBV")
+{
+    field(DTYP, "asynFloat64ArrayIn")
+	field(FTVL, "DOUBLE")
+	field(NELM, 1000)
+    field(INP,  "@asyn(nsv,0,0)reader_f64a")
+    field(PREC, "3")
+    field(SCAN, "I/O Intr")
+	field(TSE, -2)
+}
+
+# read a labview timestamp, stored in a uint64[2] shared variable
+# if TSE is -2 then time of PV is set to value of timestamp variable rather than update time of shared variable
+record(ai, "$(P)struct_ts_RBV")
+{
+    field(DESC, "ftimestamp")
+    field(DTYP, "asynFloat64")
+    field(INP,  "@asyn(nsv,0,0)reader_s_ts")
+    field(SCAN, "I/O Intr")
+	field(TSE, -2)
+}
+
+# Read part of struct network shared variable
+record(waveform, "$(P)struct_array_RBV")
+{
+    field(DESC, "some_struct")
+    field(DTYP, "asynFloat64ArrayIn")
+    field(INP,  "@asyn(nsv,0,0)reader_s_f64a")
+	field(FTVL, "DOUBLE")
+	field(NELM, 1000)
+    field(PREC, "3")
+    field(SCAN, "I/O Intr")
+	field(TSE, -2)
+}
