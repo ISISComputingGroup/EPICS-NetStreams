@@ -641,6 +641,8 @@ struct NsEndpoint
                 ERROR_CHECK("CNSDataDiscard", error);
             }
             delete[] fields;
+            error = CNSDataDiscard(data);
+            ERROR_CHECK("CNSDataDiscard", error);
             ++m_items_read;
         }
         else if (type.find("array") != std::string::npos)
