@@ -478,7 +478,7 @@ struct NsEndpoint
                     read();
                     if (delay_ms > 0)
                     {
-                        epicsThreadSleep(delay_ms);
+                        epicsThreadSleep(static_cast<double>(delay_ms) / 1000.0);
                     }
                 }
             }
