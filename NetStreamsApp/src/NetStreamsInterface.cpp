@@ -26,13 +26,19 @@
 #include <map>
 #include <list>
 #include <limits>
+
 #if defined(_WIN32) && defined(_MSC_VER) && _MSC_VER < 1700 /* Pre VS2012 */
-#include <boost/atomic.hpp>
-namespace atomicns = boost;
+// boost atomic is not header only, volatile should be enough here 
+// as we only write from a single thread adn also only care about
+// 64bit architectures
+typedef volatile uint32_t my_atomic_uint32_t;
+typedef volatile uint64_t my_atomic_uint64_t;
 #else
 #include <atomic>
-namespace atomicns = std;
+typedef std::atomic<uint32_t> my_atomic_uint32_t;
+typedef std::atomic<uint64_t> my_atomic_uint64_t;
 #endif
+
 #include <stdexcept>
 #include <sstream>
 #include <fstream>
@@ -351,8 +357,8 @@ struct NsEndpoint
 	CNSEndpoint endpointID;
     CNSType endpointType;
     
-    atomicns::atomic<uint32_t> m_items_read;
-    atomicns::atomic<uint64_t> m_bytes_read;
+    my_atomic_uint32_t m_items_read;
+    my_atomic_uint64_t m_bytes_read;
     uint32_t m_last_items_read;
     uint64_t m_last_bytes_read;
     struct timeb m_last_report;
