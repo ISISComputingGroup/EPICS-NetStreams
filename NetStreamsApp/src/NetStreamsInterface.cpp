@@ -351,9 +351,11 @@ struct NsEndpoint
     uint64_t m_last_bytes_read;
     struct timeb m_last_report;
     std::list<int> field_ids;
+    size_t m_bufferItems;
+    size_t m_bufferAlloc;
     
 	epicsTimeStamp epicsTS; ///< timestamp of endpoint update
-	NsEndpoint(const std::string& type_,  NsAccessMode access_, const std::string& URL_, const std::string&  otherURL_, int delay_ms_) : URL(URL_), otherURL(otherURL_), type(type_), access(access_), endpointID(0), delay_ms(delay_ms_), m_items_read(0), m_bytes_read(0), m_last_items_read(0), m_last_bytes_read(0)
+	NsEndpoint(const std::string& type_,  NsAccessMode access_, const std::string& URL_, const std::string&  otherURL_, int delay_ms_, size_t bufferItems_, size_t bufferAlloc_) : URL(URL_), otherURL(otherURL_), type(type_), access(access_), endpointID(0), delay_ms(delay_ms_), m_bufferItems(bufferItems_), m_bufferAlloc(bufferAlloc_), m_items_read(0), m_bytes_read(0), m_last_items_read(0), m_last_bytes_read(0)
 	{ 
 	    memset(&epicsTS, 0, sizeof(epicsTS));
         ftime(&m_last_report);
@@ -398,7 +400,7 @@ struct NsEndpoint
 		}
 		error = CNSGetEndpointAttribute(endpointID, CNSAttributeTotalItemsWritten, &ull);
 		if (error >= 0) {
-		    fprintf(fp, "  Items written: %llu\n", ull);
+		    fprintf(fp, "  Items written (session): %llu\n", ull);
 		}
 		error = CNSGetEndpointAttribute(endpointID, CNSAttributeItemsAvailForReading, &st);
 		if (error >= 0) {
@@ -408,12 +410,20 @@ struct NsEndpoint
 		if (error >= 0) {
 		    fprintf(fp, "  Items available for writing: %llu\n", static_cast<unsigned long long>(st));
 		}
+		error = CNSGetEndpointAttribute(endpointID, CNSAttributeRemoteBufferSize, &st);
+		if (error >= 0) {
+		    fprintf(fp, "  Remote buffer size (items): %llu\n", static_cast<unsigned long long>(st));
+		}
+		error = CNSGetEndpointAttribute(endpointID, CNSAttributeRemoteBufferFreeSpace, &st);
+		if (error >= 0) {
+		    fprintf(fp, "  Remote buffer free space (items): %llu\n", static_cast<unsigned long long>(st));
+		}
         struct timeb now;
 		fprintf(fp, "  Items read (total): %llu\n", static_cast<unsigned long long>(m_items_read));
 		fprintf(fp, "  Bytes read (total): %llu\n", static_cast<unsigned long long>(m_bytes_read));
         ftime(&now);
         double tdiff = difftime(now.time, m_last_report.time) + ((int)now.millitm - (int)m_last_report.millitm) / 1000.0;
-        fprintf(fp, "* Data rates are average since last call to this command *\n");
+        fprintf(fp, "  * Data rates are average since last call to this command *\n");
         fprintf(fp, "  Items read /s: %f\n", (m_items_read - m_last_items_read) / tdiff );
         fprintf(fp, "  Bytes read /s: %f\n", (m_bytes_read - m_last_bytes_read) / tdiff );
         m_last_items_read = m_items_read;
@@ -492,7 +502,7 @@ struct NsEndpoint
         {
             CNSData data;
             createCNSData(type, &data);
-		    error = CNSNewEndpoint(URL.c_str(), otherURL.c_str(), data, 100, 0, dir, CNSWaitForever, NULL, &endpointID);
+		    error = CNSNewEndpoint(URL.c_str(), otherURL.c_str(), data, m_bufferItems, m_bufferAlloc, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewEndpoint", error);
             error = CNSDataDiscard(data);
             ERROR_CHECK("CNSDataDiscard", error);
@@ -500,13 +510,13 @@ struct NsEndpoint
         }
         else if (type.find("array") != std::string::npos) // is it an array?
         {
-		    error = CNSNewArrayEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), 100, 0, dir, CNSWaitForever, NULL, &endpointID);
+		    error = CNSNewArrayEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), m_bufferItems, m_bufferAlloc, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewArrayEndpoint", error);
             endpointType = getCNSType(type);
         }
         else
         {
-		    error = CNSNewScalarEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), 100, 0, dir, CNSWaitForever, NULL, &endpointID);
+		    error = CNSNewScalarEndpoint(URL.c_str(), otherURL.c_str(), getCNSType(type), m_bufferItems, m_bufferAlloc, dir, CNSWaitForever, NULL, &endpointID);
             ERROR_CHECK("CNSNewScalarEndpoint", error);
             endpointType = getCNSType(type);
        }
@@ -1030,7 +1040,6 @@ void NetStreamsInterface::getEndpoints()
 	}
 	for (pugi::xpath_node_set::const_iterator it = endpoints.begin(); it != endpoints.end(); ++it)
 	{
-        int delay_ms;
 		pugi::xpath_node node = *it;	
 		std::string name = node.node().attribute("name").value();
 		std::string type = node.node().attribute("type").value();
@@ -1038,6 +1047,8 @@ void NetStreamsInterface::getEndpoints()
 		std::string URL = node.node().attribute("URL").value();
 		std::string otherURL = node.node().attribute("otherURL").value();
 		std::string delay_ms_s = node.node().attribute("delay_ms").value();
+		std::string buffer_items_s = node.node().attribute("buffer_items").value();
+		std::string buffer_alloc_s = node.node().attribute("buffer_alloc").value();
 		NsEndpoint::NsAccessMode access_mode = NsEndpoint::Unknown;
 		if (access == "R")
 		{			
@@ -1052,15 +1063,10 @@ void NetStreamsInterface::getEndpoints()
 			std::cerr << "getEndpoints: Unknown access mode \"" << access << "\" for endpoint " << name << std::endl;
             continue;
 		}
-		if (delay_ms_s.size() == 0)
-		{
-			delay_ms = 0;
-		}
-		else
-		{
-			delay_ms = atoi(delay_ms_s.c_str());
-		}
-		NsEndpoint* nsep = new NsEndpoint(type, access_mode, URL, otherURL, delay_ms);
+        int delay_ms = (delay_ms_s.size() > 0 ? atoi(delay_ms_s.c_str()) : 0);
+        size_t buffer_items = (buffer_items_s.size() > 0 ? atoi(buffer_items_s.c_str()) : 100);
+        size_t buffer_alloc = (buffer_alloc_s.size() > 0 ? atoi(buffer_alloc_s.c_str()) : 0);
+		NsEndpoint* nsep = new NsEndpoint(type, access_mode, URL, otherURL, delay_ms, buffer_items, buffer_alloc);
 		m_endpoints[name] = nsep;
         std::string thread_name = std::string("NetStreams-") + name;
 		if (epicsThreadCreate(thread_name.c_str(),
