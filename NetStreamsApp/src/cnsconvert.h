@@ -178,6 +178,14 @@ struct C2CNS<char>
 };
 
 template<>
+struct C2CNS<signed char>
+{
+    enum { nstype = CNSTypeInt8 };
+	static const char* desc;
+	static asynStatus (asynPortDriver::*asyn_callback)(epicsInt8* value, size_t nElements, int reason, int addr);
+};
+
+template<>
 struct C2CNS<unsigned char>
 {
     enum { nstype = CNSTypeUInt8 };

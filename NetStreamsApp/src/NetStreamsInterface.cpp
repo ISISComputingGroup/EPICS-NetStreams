@@ -1271,11 +1271,13 @@ template void NetStreamsInterface::setArrayValue(const char* param, const float*
 template void NetStreamsInterface::setArrayValue(const char* param, const int* value, size_t nElements);
 template void NetStreamsInterface::setArrayValue(const char* param, const short* value, size_t nElements);
 template void NetStreamsInterface::setArrayValue(const char* param, const char* value, size_t nElements);
+template void NetStreamsInterface::setArrayValue(const char* param, const signed char* value, size_t nElements);
 
 template void NetStreamsInterface::readArrayValue(const char* paramName, double* value, size_t nElements, size_t* nIn);
 template void NetStreamsInterface::readArrayValue(const char* paramName, float* value, size_t nElements, size_t* nIn);
 template void NetStreamsInterface::readArrayValue(const char* paramName, int* value, size_t nElements, size_t* nIn);
 template void NetStreamsInterface::readArrayValue(const char* paramName, short* value, size_t nElements, size_t* nIn);
 template void NetStreamsInterface::readArrayValue(const char* paramName, char* value, size_t nElements, size_t* nIn);
+template void NetStreamsInterface::readArrayValue(const char* paramName, signed char* value, size_t nElements, size_t* nIn);
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
